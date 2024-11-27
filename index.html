@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Text Detection (Back Camera)</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        padding: 0;
+      }
+      #container {
+        position: relative;
+        width: 80%;
+        max-width: 640px;
+      }
+      video,
+      canvas {
+        width: 100%;
+        height: auto;
+        border: 1px solid #ccc;
+      }
+      #inputField {
+        margin: 20px 0;
+        display: flex;
+        justify-content: center;
+      }
+      input[type="text"] {
+        width: 60%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+      }
+      button {
+        padding: 10px 20px;
+        margin-left: 10px;
+        border: none;
+        background-color: #007bff;
+        color: white;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Live Text Detection (Back Camera)</h1>
+    <div id="inputField">
+      <input type="text" id="searchText" placeholder="Enter text to detect" />
+      <button id="captureFrame">Capture Frame</button>
+    </div>
+    <div id="container">
+      <video id="video" autoplay></video>
+      <canvas id="canvas"></canvas>
+    </div>
+
+    <!-- Include Tesseract.js -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.5/dist/tesseract.min.js"></script>
+    <script>
+      const video = document.getElementById("video");
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const captureButton = document.getElementById("captureFrame");
+      const searchTextInput = document.getElementById("searchText");
+
+      // Function to start the back camera
+      async function startBackCamera() {
+        try {
+          // Get available media devices
+          const devices = await navigator.mediaDevices.enumerateDevices();
+
+          // Find the back camera
+          const backCamera = devices.find(
+            (device) =>
+              device.kind === "videoinput" &&
+              device.label.toLowerCase().includes("back")
+          );
+
+          if (!backCamera) {
+            alert("Back camera not found. Using default camera.");
+          }
+
+          // Access the back camera or default camera if back is not available
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: backCamera ? backCamera.deviceId : undefined,
+            },
+          });
+
+          video.srcObject = stream;
+          video.play();
+        } catch (error) {
+          console.error("Error accessing camera:", error);
+        }
+      }
+
+      captureButton.addEventListener("click", () => {
+        const searchText = searchTextInput.value.trim();
+        if (!searchText) {
+          alert("Please enter text to search.");
+          return;
+        }
+
+        // Set canvas size to match video
+        canvas.width = video.videoWidth * 2; // Increase resolution
+        canvas.height = video.videoHeight * 2;
+
+        // Draw the current video frame onto the canvas with scaling
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Preprocess image: Convert to grayscale
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          const avg =
+            (imageData.data[i] +
+              imageData.data[i + 1] +
+              imageData.data[i + 2]) /
+            3;
+          imageData.data[i] = avg; // Red channel
+          imageData.data[i + 1] = avg; // Green channel
+          imageData.data[i + 2] = avg; // Blue channel
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        // Extract the preprocessed image
+        const processedImage = canvas.toDataURL("image/png");
+
+        // Perform OCR with Tesseract.js
+        Tesseract.recognize(processedImage, "eng", {
+          tessedit_char_whitelist:
+            "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", // Optimize for specific characters
+        })
+          .then(({ data }) => {
+            const detectedText = data.text;
+            console.log("Detected Text:", detectedText);
+
+            const normalizedSearchText = searchText.toLowerCase();
+
+            let found = false;
+
+            // Loop through detected words and draw rectangles for matches
+            data.words.forEach((word) => {
+              const normalizedDetectedWord = word.text.toLowerCase();
+              if (normalizedDetectedWord.includes(normalizedSearchText)) {
+                found = true;
+                const { x0, y0, x1, y1 } = word.bbox;
+                ctx.strokeStyle = "yellow";
+                ctx.lineWidth = 4;
+                ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+              }
+            });
+
+            // dummy
+
+            // Check sentences/lines using data.lines
+            data.lines.forEach((line) => {
+              const normalizedLineText = line.text.toLowerCase();
+              if (normalizedLineText.includes(normalizedSearchText)) {
+                found = true;
+
+                // Draw a yellow rectangle around the detected line
+                const { x0, y0, x1, y1 } = line.bbox;
+                ctx.strokeStyle = "yellow";
+                ctx.lineWidth = 4;
+                ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+              }
+            });
+
+            // dummy
+
+            if (!found) {
+              alert("Text not found.");
+            } else {
+              alert(`Highlighted text: "${searchText}"`);
+            }
+          })
+          .catch((err) => {
+            console.error("OCR Error:", err);
+          });
+      });
+
+      // Initialize video with back camera on page load
+      startBackCamera();
+    </script>
+  </body>
+</html>
+
+<!-- Main sotty sotty -->
